@@ -26,6 +26,71 @@ From these requirements, it was clear that a regular RC controller / receiver co
 * Drives and moves the dome using continuous rotation servos (this is copied from the original project as described by Michael Baddeley).
 * Has the electronics set up on a small breadboard using pin wires, using 3 pins for the servos and 2 pins to control the MP3 player.
 
+## Bakken Museum Workshop Version (WiFi Control)
+
+A new WiFi-based control version has been developed specifically for youth STEM workshops at The Bakken Museum (Minneapolis, MN). This version replaces Bluetooth/Dabble control with a self-hosted WiFi Access Point and web-based interface.
+
+### Features
+
+* **WiFi Access Point Mode:** Each droid creates its own WiFi network (e.g., "R2-BAKKEN-01")
+* **Web-Based Control:** Control via any web browser (phone, tablet, or computer)
+* **No App Required:** No need to install Dabble or pair Bluetooth
+* **Mobile-Friendly Interface:** Responsive design with touch-friendly buttons
+* **Clone Wars Theme:** Dark theme with cyan accents inspired by Star Wars animation
+* **Sound Support:** DFPlayer Mini for sound effects (optional)
+* **LED Control:** Built-in LED on/off control (expandable)
+* **Educational Focus:** Code designed to be readable and teachable
+
+### Getting Started with WiFi Version
+
+1. **Upload the Code:**
+   - Open `BB-R2-WiFi/BB-R2-WiFi.ino` in Arduino IDE
+   - Customize the WiFi SSID in the code (default: "R2-BAKKEN-01")
+   - Upload to your ESP32
+
+2. **Connect to Your Droid:**
+   - Power on the droid
+   - On your phone/tablet, connect to WiFi network "R2-BAKKEN-XX"
+   - Password: `droid123`
+   - Open browser and go to: `http://192.168.4.1`
+
+3. **Control Your Droid:**
+   - Use the web interface buttons to move forward/back/left/right
+   - Control dome rotation
+   - Trigger sound effects (if DFPlayer installed)
+   - Toggle LED on/off
+
+### Pin Assignments (WiFi Version)
+
+```
+ESP32 Pin | Component
+----------|----------------------------------
+GPIO 2    | Left servo signal
+GPIO 3    | Right servo signal
+GPIO 4    | Dome servo signal
+GPIO 5    | LED (optional)
+GPIO 6    | DFPlayer TX (optional)
+GPIO 7    | DFPlayer RX (optional)
+```
+
+### Libraries Required (WiFi Version)
+
+* WiFi.h (ESP32 built-in)
+* WebServer.h (ESP32 built-in)
+* ESP32Servo
+* DFRobotDFPlayerMini (optional, for sound)
+
+### Workshop Documentation
+
+For educators planning to use this for workshops, see:
+* `docs/WORKSHOP_NOTES.md` - Complete curriculum, BOM, and preparation checklist
+
+### Credits
+
+WiFi version developed for The Bakken Museum workshop (December 2025), based on the original BB-R2 ESP32 project by Bjoern Giesler. Both versions are licensed under Apache 2.0.
+
+---
+
 ## Extension ideas
 
 While the droid is already quite cool, there are a number of things that it cannot do, and that would be very useful or fun. This is just an idea collection for would-be hackers and extenders.
