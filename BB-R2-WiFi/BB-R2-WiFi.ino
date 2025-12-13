@@ -31,6 +31,7 @@ const char* password = "droid123";
 #define BATTERY_PIN A0  // ADC pin for voltage divider
 #define R1 10000.0      // 10kΩ resistor
 #define R2 10000.0      // 10kΩ resistor
+#define ADC_MAX_VALUE 4095  // 12-bit ADC resolution
 
 // Pin Assignments
 #define SERVO_LEFT_PIN   2
@@ -314,7 +315,7 @@ const char* htmlPage = R"rawliteral(
 
 float getBatteryVoltage() {
   int raw = analogRead(BATTERY_PIN);
-  float voltage = (raw / 4095.0) * 3.3;  // ADC reading to voltage at pin
+  float voltage = (raw / (float)ADC_MAX_VALUE) * 3.3;  // ADC reading to voltage at pin
   voltage = voltage * ((R1 + R2) / R2);   // Account for voltage divider
   return voltage;
 }
@@ -322,7 +323,7 @@ float getBatteryVoltage() {
 int getBatteryPercent() {
   float v = getBatteryVoltage();
   // 4x AA: ~6.0V full (fresh alkaline), ~4.4V empty
-  int percent = map(v * 100, 440, 600, 0, 100);
+  int percent = map((int)(v * 100), 440, 600, 0, 100);
   return constrain(percent, 0, 100);
 }
 
