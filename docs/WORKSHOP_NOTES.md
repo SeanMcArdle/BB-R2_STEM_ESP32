@@ -313,7 +313,7 @@ The magnetic dome modification allows tool-free dome removal for easy access to 
 3. **Sound Effects:** Record custom sound effects
 4. **LED Patterns:** Program blinking/fading effects
 5. **Range Extension:** Add WiFi range extender
-6. **Battery Monitor:** Add voltage sensing (see Battery Monitor Wiring section)
+6. **Battery Monitor Enhancements:** The basic battery monitor is now built-in! Advanced participants could add low battery alerts, data logging, or voltage graphs
 7. **Speed Control:** Add variable speed sliders to web interface
 
 ### Take-Home Challenges:
