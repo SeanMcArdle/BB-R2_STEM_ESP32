@@ -33,9 +33,11 @@ const char* password = "droid123";
 #define SERVO_DOME_PIN   4
 #define LED_PIN          5
 
-// DFPlayer uses Serial (RX/TX pins defined in hardware)
-#define RX D7  // Adjust based on your ESP32 board
-#define TX D6  // Adjust based on your ESP32 board
+// DFPlayer uses Serial (RX/TX pins - adjust based on your ESP32 board)
+// For Seeed Xiao ESP32C3: Use GPIO 20 (RX) and GPIO 21 (TX)
+// For other ESP32 boards: Check your pinout diagram
+#define RX 20  // Adjust based on your ESP32 board
+#define TX 21  // Adjust based on your ESP32 board
 
 // ============================================================================
 // SERVO CONTROL - Preserving Bjoern's elegant architecture
