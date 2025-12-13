@@ -35,6 +35,7 @@ const char* password = "droid123";
 
 // DFPlayer uses Hardware Serial 1 (adjust RX/TX pins based on your ESP32 board)
 // IMPORTANT: These pin numbers are board-specific. Check your ESP32 variant's pinout!
+// WIRING NOTE: Connect ESP32 TX to DFPlayer RX, and ESP32 RX to DFPlayer TX
 // For Seeed Xiao ESP32C3: Use GPIO 20 (RX) and GPIO 21 (TX)
 // For ESP32 DevKit: Use GPIO 16 (RX) and GPIO 17 (TX)
 // For other boards: Consult your board's pinout diagram

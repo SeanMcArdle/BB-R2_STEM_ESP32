@@ -45,6 +45,8 @@ Other ESP32 boards may use different pins for hardware serial. Common alternativ
 - ESP32 DevKit: GPIO 16 (RX), GPIO 17 (TX)
 - Check your specific board's pinout diagram before wiring!
 
+**Wiring Convention:** Connect ESP32 TX → DFPlayer RX, and ESP32 RX → DFPlayer TX
+
 ## Customization
 
 ### Change WiFi Network Name:

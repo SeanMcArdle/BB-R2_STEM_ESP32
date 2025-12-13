@@ -127,8 +127,8 @@ GPIO 2    | Left servo signal
 GPIO 3    | Right servo signal  
 GPIO 4    | Dome servo signal
 GPIO 5    | LED (optional)
-GPIO 6    | DFPlayer TX (optional, board-specific)*
-GPIO 7    | DFPlayer RX (optional, board-specific)*
+GPIO 20*  | DFPlayer RX (optional, board-specific)
+GPIO 21*  | DFPlayer TX (optional, board-specific)
 GND       | Common ground (servos, battery -)
 5V        | Servo power (from battery +)
 ```
@@ -139,9 +139,9 @@ GND       | Common ground (servos, battery -)
 - ESP32 runs on 3.3V or 5V depending on model
 - Use breadboard to distribute power/ground
 - **DFPlayer pin numbers are board-specific** - verify against your ESP32 variant's pinout
-  - Seeed Xiao ESP32C3: GPIO 20 (RX), GPIO 21 (TX) recommended
+  - Seeed Xiao ESP32C3: GPIO 20 (RX), GPIO 21 (TX) recommended (as configured in code)
   - ESP32 DevKit: GPIO 16 (RX), GPIO 17 (TX) recommended
-  - Always check your board's documentation!
+  - Always check your board's documentation and update the pin definitions in the code!
 
 ## WiFi Network Details
 

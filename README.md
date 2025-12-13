@@ -69,9 +69,11 @@ GPIO 2    | Left servo signal
 GPIO 3    | Right servo signal
 GPIO 4    | Dome servo signal
 GPIO 5    | LED (optional)
-GPIO 6    | DFPlayer TX (optional)
-GPIO 7    | DFPlayer RX (optional)
+GPIO 20*  | DFPlayer RX (optional, board-specific)
+GPIO 21*  | DFPlayer TX (optional, board-specific)
 ```
+
+*Note: DFPlayer pins are configured for Seeed Xiao ESP32C3. Other boards may require different pins (e.g., GPIO 16/17 for DevKit). Check your board's pinout.
 
 ### Libraries Required (WiFi Version)
 
