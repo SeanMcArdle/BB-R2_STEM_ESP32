@@ -44,7 +44,7 @@
 
 ---
 
-## Tools &amp; Spares (Recommended)
+## Tools & Spares (Recommended)
 
 | Item | Qty | Why | Est. Price | Link |
 |------|-----|-----|------------|------|
@@ -64,7 +64,7 @@
 | Core Components | ~$349 |
 | Sound (stretch) | ~$82 |
 | LEDs (stretch) | ~$14 |
-| Tools &amp; Spares | ~$67 |
+| Tools & Spares | ~$67 |
 | **TOTAL** | **~$512** |
 
 **Per-kid cost (core only): ~$22/droid**
