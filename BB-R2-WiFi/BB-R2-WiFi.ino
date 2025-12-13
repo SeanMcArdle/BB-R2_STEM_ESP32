@@ -32,6 +32,8 @@ const char* password = "droid123";
 #define R1 10000.0      // 10kΩ resistor
 #define R2 10000.0      // 10kΩ resistor
 #define ADC_MAX_VALUE 4095  // 12-bit ADC resolution
+#define BATTERY_MIN_MV 4400  // 4x AA minimum voltage (mV)
+#define BATTERY_MAX_MV 6000  // 4x AA maximum voltage (mV)
 
 // Pin Assignments
 #define SERVO_LEFT_PIN   2
@@ -274,6 +276,10 @@ const char* htmlPage = R"rawliteral(
   </div>
 
   <script>
+    // Battery level thresholds
+    const BATTERY_LOW_THRESHOLD = 20;
+    const BATTERY_MED_THRESHOLD = 50;
+    
     function sendCmd(cmd) {
       fetch('/cmd?c=' + cmd)
         .then(response => response.text())
@@ -291,7 +297,7 @@ const char* htmlPage = R"rawliteral(
         .then(b => {
           const el = document.getElementById('batt');
           el.innerText = b;
-          el.className = b < 20 ? 'battery-low' : b < 50 ? 'battery-med' : 'battery-good';
+          el.className = b < BATTERY_LOW_THRESHOLD ? 'battery-low' : b < BATTERY_MED_THRESHOLD ? 'battery-med' : 'battery-good';
         })
         .catch(e => console.log(e));
     }
@@ -322,8 +328,9 @@ float getBatteryVoltage() {
 
 int getBatteryPercent() {
   float v = getBatteryVoltage();
-  // 4x AA: ~6.0V full (fresh alkaline), ~4.4V empty
-  int percent = map((int)(v * 100), 440, 600, 0, 100);
+  // Map battery voltage to percentage (4.4V empty to 6.0V full)
+  int vMillivolts = (int)(v * 1000);
+  int percent = map(vMillivolts, BATTERY_MIN_MV, BATTERY_MAX_MV, 0, 100);
   return constrain(percent, 0, 100);
 }
 
