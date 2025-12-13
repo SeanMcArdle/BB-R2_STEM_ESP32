@@ -139,11 +139,42 @@ int serialLogIndex = 0;
 // HELPER FUNCTIONS
 // ============================================================================
 
+// Escape special characters for JSON string
+String escapeJSON(String str) {
+  String escaped = "";
+  for (int i = 0; i < str.length(); i++) {
+    char c = str.charAt(i);
+    switch (c) {
+      case '"':  escaped += "\\\""; break;
+      case '\\': escaped += "\\\\"; break;
+      case '\b': escaped += "\\b"; break;
+      case '\f': escaped += "\\f"; break;
+      case '\n': escaped += "\\n"; break;
+      case '\r': escaped += "\\r"; break;
+      case '\t': escaped += "\\t"; break;
+      default:
+        if (c < 32) {
+          // Control characters - skip them
+          escaped += " ";
+        } else {
+          escaped += c;
+        }
+    }
+  }
+  return escaped;
+}
+
 void logSerial(String message) {
   Serial.println(message);
   // Add to circular buffer
   serialLog[serialLogIndex] = message;
   serialLogIndex = (serialLogIndex + 1) % SERIAL_LOG_SIZE;
+  
+  // Relay to web interface via WebSocket
+  String json = "{\"type\":\"log\",\"msg\":\"";
+  json += escapeJSON(message);
+  json += "\"}";
+  webSocket.broadcastTXT(json);
 }
 
 // ============================================================================
@@ -735,13 +766,6 @@ void sendTelemetry() {
     
     webSocket.broadcastTXT(json);
   }
-}
-
-void sendLogMessage(String msg) {
-  String json = "{\"type\":\"log\",\"msg\":\"";
-  json += msg;
-  json += "\"}";
-  webSocket.broadcastTXT(json);
 }
 
 // ============================================================================
