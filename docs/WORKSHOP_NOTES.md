@@ -97,6 +97,9 @@ This hands-on STEM workshop introduces participants to:
 - 1x LED (any color) - ~$0.50
 - 1x 220Ω resistor - ~$0.10
 
+**Optional Battery Monitor:**
+- 2x 10kΩ resistors (for battery voltage divider) - ~$0.20
+
 **3D Printed Parts:**
 - Body (main shell)
 - Dome (head piece)
@@ -142,6 +145,38 @@ GND       | Common ground (servos, battery -)
   - Seeed Xiao ESP32C3: GPIO 20 (RX), GPIO 21 (TX) recommended (as configured in code)
   - ESP32 DevKit: GPIO 16 (RX), GPIO 17 (TX) recommended
   - Always check your board's documentation and update the pin definitions in the code!
+
+## Battery Monitor Wiring
+
+**BATTERY MONITOR (Optional but recommended):**
+
+The battery monitor feature lets the droid display its battery level in the web interface! The battery icon changes color as power depletes: green (>50%) → yellow (20-50%) → red (<20%).
+
+**Wiring Instructions:**
+```
+4x AA Batteries (4.4V-6V)
+        │
+        ├───[R1 10kΩ]───┬───[R2 10kΩ]───GND
+        │               │
+        │            ADC Pin (A0)
+        │          (reads ~2.2V-3V)
+        │
+      To Droid Power
+```
+
+**Setup:**
+- Connect R1 (10kΩ) from battery positive to voltage divider junction
+- Connect R2 (10kΩ) from voltage divider junction to GND
+- Connect voltage divider junction to pin A0 on ESP32
+- This voltage divider safely scales 6V down to 3V for the ADC
+- The web interface automatically polls battery level every 10 seconds
+
+**Why we need voltage dividers:**
+- The ESP32 ADC can only read up to 3.3V safely
+- 4x AA batteries provide 4.4V-6V which is too high
+- Two equal resistors (10kΩ each) divide voltage in half
+- This lets us measure battery voltage without damaging the ESP32
+- Great teaching moment about voltage, resistance, and ADCs!
 
 ## WiFi Network Details
 
@@ -278,7 +313,7 @@ The magnetic dome modification allows tool-free dome removal for easy access to 
 3. **Sound Effects:** Record custom sound effects
 4. **LED Patterns:** Program blinking/fading effects
 5. **Range Extension:** Add WiFi range extender
-6. **Battery Monitor:** Add voltage sensing
+6. **Battery Monitor Enhancements:** The basic battery monitor is now built-in! Advanced participants could add low battery alerts, data logging, or voltage graphs
 7. **Speed Control:** Add variable speed sliders to web interface
 
 ### Take-Home Challenges:

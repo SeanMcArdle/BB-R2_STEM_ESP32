@@ -27,6 +27,14 @@
 const char* ssid = "R2-BAKKEN-01";      // Change this for each droid (R2-BAKKEN-02, etc.)
 const char* password = "droid123";
 
+// ============== BATTERY MONITOR ==============
+#define BATTERY_PIN A0  // ADC pin for voltage divider
+#define R1 10000.0      // 10kΩ resistor
+#define R2 10000.0      // 10kΩ resistor
+#define ADC_MAX_VALUE 4095  // 12-bit ADC resolution
+#define BATTERY_MIN_MV 4400  // 4x AA minimum voltage (mV)
+#define BATTERY_MAX_MV 6000  // 4x AA maximum voltage (mV)
+
 // Pin Assignments
 #define SERVO_LEFT_PIN   2
 #define SERVO_RIGHT_PIN  3
@@ -200,9 +208,24 @@ const char* htmlPage = R"rawliteral(
       border-radius: 8px;
       font-size: 0.9em;
     }
+    .battery-indicator {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      padding: 8px 12px;
+      background: #16213e;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    .battery-low { color: #ff4444; }
+    .battery-med { color: #ffaa00; }
+    .battery-good { color: #00ff88; }
   </style>
 </head>
 <body>
+  <div class="battery-indicator">
+    🔋 <span id="batt">--</span>%
+  </div>
   <h1>🤖 BB-R2 CONTROL</h1>
   <div class="subtitle">Bakken Museum Workshop Edition</div>
   
@@ -253,6 +276,10 @@ const char* htmlPage = R"rawliteral(
   </div>
 
   <script>
+    // Battery level thresholds
+    const BATTERY_LOW_THRESHOLD = 20;
+    const BATTERY_MED_THRESHOLD = 50;
+    
     function sendCmd(cmd) {
       fetch('/cmd?c=' + cmd)
         .then(response => response.text())
@@ -264,6 +291,21 @@ const char* htmlPage = R"rawliteral(
         });
     }
     
+    function updateBattery() {
+      fetch('/battery')
+        .then(r => r.text())
+        .then(b => {
+          const el = document.getElementById('batt');
+          el.innerText = b;
+          el.className = b < BATTERY_LOW_THRESHOLD ? 'battery-low' : b < BATTERY_MED_THRESHOLD ? 'battery-med' : 'battery-good';
+        })
+        .catch(e => console.log(e));
+    }
+    // Update every 10 seconds
+    setInterval(updateBattery, 10000);
+    // Initial read
+    updateBattery();
+    
     // Prevent scrolling on touch for better control experience
     document.body.addEventListener('touchmove', function(e) {
       e.preventDefault();
@@ -274,11 +316,35 @@ const char* htmlPage = R"rawliteral(
 )rawliteral";
 
 // ============================================================================
+// BATTERY MONITOR FUNCTIONS
+// ============================================================================
+
+float getBatteryVoltage() {
+  int raw = analogRead(BATTERY_PIN);
+  float voltage = (raw / (float)ADC_MAX_VALUE) * 3.3;  // ADC reading to voltage at pin
+  voltage = voltage * ((R1 + R2) / R2);   // Account for voltage divider
+  return voltage;
+}
+
+int getBatteryPercent() {
+  float v = getBatteryVoltage();
+  // Map battery voltage to percentage (4.4V empty to 6.0V full)
+  int vMillivolts = (int)(v * 1000);
+  int percent = map(vMillivolts, BATTERY_MIN_MV, BATTERY_MAX_MV, 0, 100);
+  return constrain(percent, 0, 100);
+}
+
+// ============================================================================
 // WEB SERVER HANDLERS
 // ============================================================================
 
 void handleRoot() {
   server.send(200, "text/html", htmlPage);
+}
+
+void handleBattery() {
+  int percent = getBatteryPercent();
+  server.send(200, "text/plain", String(percent));
 }
 
 void handleCommand() {
@@ -437,6 +503,7 @@ void setup() {
   // Set up web server routes
   server.on("/", handleRoot);
   server.on("/cmd", handleCommand);
+  server.on("/battery", handleBattery);
   
   server.begin();
   Serial.println("\nWeb server started");
