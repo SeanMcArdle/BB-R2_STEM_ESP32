@@ -35,9 +35,15 @@ GPIO 2  → Left Servo
 GPIO 3  → Right Servo
 GPIO 4  → Dome Servo
 GPIO 5  → LED (optional)
-GPIO 20 → DFPlayer RX (optional)
-GPIO 21 → DFPlayer TX (optional)
+GPIO 20 → DFPlayer RX (optional, board-specific)*
+GPIO 21 → DFPlayer TX (optional, board-specific)*
 ```
+
+**Important Note on DFPlayer Pins:**
+The RX/TX pin numbers (GPIO 20/21) are configured for Seeed Xiao ESP32C3. 
+Other ESP32 boards may use different pins for hardware serial. Common alternatives:
+- ESP32 DevKit: GPIO 16 (RX), GPIO 17 (TX)
+- Check your specific board's pinout diagram before wiring!
 
 ## Customization
 

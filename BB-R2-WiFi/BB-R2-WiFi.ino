@@ -33,11 +33,13 @@ const char* password = "droid123";
 #define SERVO_DOME_PIN   4
 #define LED_PIN          5
 
-// DFPlayer uses Serial (RX/TX pins - adjust based on your ESP32 board)
+// DFPlayer uses Hardware Serial 1 (adjust RX/TX pins based on your ESP32 board)
+// IMPORTANT: These pin numbers are board-specific. Check your ESP32 variant's pinout!
 // For Seeed Xiao ESP32C3: Use GPIO 20 (RX) and GPIO 21 (TX)
-// For other ESP32 boards: Check your pinout diagram
-#define RX 20  // Adjust based on your ESP32 board
-#define TX 21  // Adjust based on your ESP32 board
+// For ESP32 DevKit: Use GPIO 16 (RX) and GPIO 17 (TX)
+// For other boards: Consult your board's pinout diagram
+#define RX 20  // RX pin for DFPlayer - VERIFY for your board!
+#define TX 21  // TX pin for DFPlayer - VERIFY for your board!
 
 // ============================================================================
 // SERVO CONTROL - Preserving Bjoern's elegant architecture
@@ -77,8 +79,8 @@ Servo servoDome;
 
 // Object to talk to the sound player
 DFRobotDFPlayerMini dfp;
-// Serial connection to talk to the sound player
-HardwareSerial dfpSerial(0);
+// Serial connection to talk to the sound player (using HardwareSerial 1 to avoid conflict with debug Serial)
+HardwareSerial dfpSerial(1);
 
 // LED state
 bool ledState = false;
