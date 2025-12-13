@@ -26,41 +26,53 @@ From these requirements, it was clear that a regular RC controller / receiver co
 * Drives and moves the dome using continuous rotation servos (this is copied from the original project as described by Michael Baddeley).
 * Has the electronics set up on a small breadboard using pin wires, using 3 pins for the servos and 2 pins to control the MP3 player.
 
-## Bakken Museum Workshop Version (WiFi Control)
+## Bakken Museum Workshop Version (WiFi Control v13)
 
-A new WiFi-based control version has been developed specifically for youth STEM workshops at The Bakken Museum (Minneapolis, MN). This version replaces Bluetooth/Dabble control with a self-hosted WiFi Access Point and web-based interface.
+A production-ready WiFi-based control version has been developed specifically for youth STEM workshops at **The Bakken Museum** (Minneapolis, MN) - **December 30-31, 2025**. This version replaces Bluetooth/Dabble control with a self-hosted WiFi Access Point and web-based interface optimized for educational workshops.
 
-### Features
+### Key Features (v13)
 
-* **WiFi Access Point Mode:** Each droid creates its own WiFi network (e.g., "R2-BAKKEN-01")
-* **Web-Based Control:** Control via any web browser (phone, tablet, or computer)
-* **No App Required:** No need to install Dabble or pair Bluetooth
-* **Mobile-Friendly Interface:** Responsive design with touch-friendly buttons
-* **Clone Wars Theme:** Dark theme with cyan accents inspired by Star Wars animation
-* **Sound Support:** DFPlayer Mini for sound effects (optional)
-* **LED Control:** Built-in LED on/off control (expandable)
-* **Educational Focus:** Code designed to be readable and teachable
+* **WiFi Access Point Mode:** Each droid creates its own WiFi network (e.g., "droidBK01")
+* **Enhanced Web UI:** Joystick control, dome slider, real-time telemetry display
+* **WebSocket Telemetry:** Live data updates at 10Hz for immediate feedback
+* **Serial Log Relay:** View debug messages directly in web interface
+* **Smooth Motion Control:** Tuned smoothing (DRIVE=0.15, DOME=0.10) for natural movement
+* **Safety Timeout:** 1000ms timeout prevents runaway on WiFi dropout
+* **Precision Dome Control:** Uses writeMicroseconds() for smooth, accurate rotation
+* **No Blocking Delays:** Responsive control loop for best performance
+* **Sound Support:** DFPlayer Mini integration (optional)
+* **LED Control:** Built-in LED with web control (expandable)
+* **Workshop Ready:** 8+ character passwords, consistent naming convention
 
-### Getting Started with WiFi Version
+### Quick Start Guide
+
+**Location:** All WiFi controller files are in the **`esp32/BB-R2-WiFi/`** directory.
 
 1. **Upload the Code:**
-   - Open `BB-R2-WiFi/BB-R2-WiFi.ino` in Arduino IDE
-   - Customize the WiFi SSID in the code (default: "R2-BAKKEN-01")
+   - Open `esp32/BB-R2-WiFi/BB-R2-WiFi.ino` in Arduino IDE
+   - Customize the WiFi name and password (lines 38-39): 
+     ```cpp
+     const char* ssid = "droidBK01";     // droidBK01, droidBK02, etc.
+     const char* password = "droidBK01"; // 8+ characters required
+     ```
+   - Install required libraries: ESP32Servo, WebSockets, DFRobotDFPlayerMini
    - Upload to your ESP32
 
 2. **Connect to Your Droid:**
-   - Power on the droid
-   - On your phone/tablet, connect to WiFi network "R2-BAKKEN-XX"
-   - Password: `droid123`
+   - Power on the droid (4xAA batteries)
+   - Wait 30 seconds for WiFi to start
+   - On your phone/tablet, connect to WiFi network "droidBK01" (or your custom name)
+   - Password: `droidBK01` (or your custom password, 8+ characters)
    - Open browser and go to: `http://192.168.4.1`
 
 3. **Control Your Droid:**
-   - Use the web interface buttons to move forward/back/left/right
-   - Control dome rotation
+   - Use joystick for intuitive drive control
+   - Use dome slider for precise dome rotation
+   - Watch real-time telemetry and serial log
    - Trigger sound effects (if DFPlayer installed)
    - Toggle LED on/off
 
-### Pin Assignments (WiFi Version)
+### Pin Assignments
 
 ```
 ESP32 Pin | Component
@@ -73,23 +85,85 @@ GPIO 20*  | DFPlayer RX (optional, board-specific)
 GPIO 21*  | DFPlayer TX (optional, board-specific)
 ```
 
-*Note: DFPlayer pins are configured for Seeed Xiao ESP32C3. Other boards may require different pins (e.g., GPIO 16/17 for DevKit). Check your board's pinout.
+**⚠️ Important:** DFPlayer pins are configured for Seeed Xiao ESP32C3 (GPIO 20/21). Other boards may require different pins:
+- **ESP32 DevKit:** GPIO 16 (RX), GPIO 17 (TX)
+- Check your board's pinout and update lines 60-61 in the code accordingly!
 
-### Libraries Required (WiFi Version)
+### Libraries Required
 
+Install via Arduino Library Manager:
+* **ESP32Servo** by Kevin Harrington
+* **WebSockets** by Markus Sattler
+* **DFRobotDFPlayerMini** by DFRobot (optional, for sound)
+
+Built-in (no installation needed):
 * WiFi.h (ESP32 built-in)
 * WebServer.h (ESP32 built-in)
-* ESP32Servo
-* DFRobotDFPlayerMini (optional, for sound)
 
-### Workshop Documentation
+### Documentation
 
-For educators planning to use this for workshops, see:
-* `docs/WORKSHOP_NOTES.md` - Complete curriculum, BOM, and preparation checklist
+Comprehensive documentation is available in the `esp32/BB-R2-WiFi/` directory:
+
+* **`esp32/BB-R2-WiFi/README.md`** - Complete guide including:
+  - Detailed setup instructions
+  - Bill of Materials (BOM)
+  - Wiring diagrams and pin configurations
+  - Tuning and customization guide
+  - Extensive troubleshooting section
+  - Workshop preparation tips for educators
+  - Advanced modifications and extensions
+
+* **`docs/WORKSHOP_NOTES.md`** - Full workshop curriculum:
+  - Day-by-day workshop schedule
+  - Preparation checklists
+  - Teaching tips and common issues
+  - Extension activities and take-home challenges
+
+### Workshop Details
+
+**Event:** BB-R2 Droid Building Workshop  
+**Dates:** December 30-31, 2025  
+**Location:** The Bakken Museum, Minneapolis, MN  
+**Target Audience:** Kids ages 8-14 with parent/guardian assistance
+
+This hands-on STEM workshop teaches:
+- Basic electronics and wiring
+- Microcontroller programming concepts
+- Robotics and servo control
+- WiFi networking basics
+- Problem-solving and debugging
+
+### Naming Convention for Workshop
+
+For workshops with multiple droids, use this consistent naming scheme:
+- **droidBK01** through **droidBK16** (or more as needed)
+- All lowercase for consistency
+- Same password as SSID for simplicity (must be 8+ characters)
+- Easy for students to remember and type
+
+### Version Information
+
+**Current Version:** v13 (December 2025)
+
+**v13 Improvements:**
+- Uses `writeMicroseconds()` for all servos (especially dome) for smoother motion
+- Increased safety timeout to 1000ms to prevent WiFi-induced stutter
+- Tuned smoothing constants: `DRIVE_SMOOTHING=0.15`, `DOME_SMOOTHING=0.10`
+- Removed `delay(10)` from loop - fully non-blocking operation
+- Added WebSocket support for real-time telemetry broadcast
+- Enhanced web UI with joystick and dome slider controls
+- Added serial log relay to web interface
+- Robust JSON parser handles formats with and without spaces
+- Clear documentation of 8+ character password requirement
 
 ### Credits
 
-WiFi version developed for The Bakken Museum workshop (December 2025), based on the original BB-R2 ESP32 project by Bjoern Giesler. Both versions are licensed under Apache 2.0.
+**v13 WiFi Controller** developed for The Bakken Museum Droid Building Workshop (December 2025), based on the original BB-R2 ESP32 project by Bjoern Giesler (2023). Both versions are licensed under Apache 2.0.
+
+**Contributors:**
+- Bjoern Giesler - Original BB-R2 ESP32 project
+- Michael Baddeley - BB-R2 3D models
+- The Bakken Museum Education Team - Workshop design and requirements
 
 ---
 
