@@ -12,56 +12,34 @@
  * 
  * Workshop: December 30-31, 2025
  * Location: The Bakken Museum, Minneapolis, MN
+ * 
+ * SETUP INSTRUCTIONS:
+ * 1. Edit config.h to set DROID_NUMBER (0-16)
+ * 2. Edit config.h to select your BOARD_TYPE
+ * 3. Upload to ESP32
+ * 4. Connect to WiFi network "R2-BKxx" (password: droidBKxx)
+ * 5. Open browser to http://192.168.4.1
  */
 
+#include "config.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESP32Servo.h>
+
+#if ENABLE_SOUND
 #include <DFRobotDFPlayerMini.h>
-
-// ============================================================================
-// CONFIGURATION
-// ============================================================================
-
-// WiFi Access Point Settings
-const char* ssid = "R2-BAKKEN-01";      // Change this for each droid (R2-BAKKEN-02, etc.)
-const char* password = "droid123";
-
-// ============== BATTERY MONITOR ==============
-#define BATTERY_PIN A0  // ADC pin for voltage divider
-#define R1 10000.0      // 10kΩ resistor
-#define R2 10000.0      // 10kΩ resistor
-#define ADC_MAX_VALUE 4095  // 12-bit ADC resolution
-#define BATTERY_MIN_MV 4400  // 4x AA minimum voltage (mV)
-#define BATTERY_MAX_MV 6000  // 4x AA maximum voltage (mV)
-
-// Pin Assignments
-#define SERVO_LEFT_PIN   2
-#define SERVO_RIGHT_PIN  3
-#define SERVO_DOME_PIN   4
-#define LED_PIN          5
-
-// DFPlayer uses Hardware Serial 1 (adjust RX/TX pins based on your ESP32 board)
-// IMPORTANT: These pin numbers are board-specific. Check your ESP32 variant's pinout!
-// WIRING NOTE: Connect ESP32 TX to DFPlayer RX, and ESP32 RX to DFPlayer TX
-// For Seeed Xiao ESP32C3: Use GPIO 20 (RX) and GPIO 21 (TX)
-// For ESP32 DevKit: Use GPIO 16 (RX) and GPIO 17 (TX)
-// For other boards: Consult your board's pinout diagram
-#define RX 20  // RX pin for DFPlayer - VERIFY for your board!
-#define TX 21  // TX pin for DFPlayer - VERIFY for your board!
+#endif
 
 // ============================================================================
 // SERVO CONTROL - Preserving Bjoern's elegant architecture
 // ============================================================================
 
-// This struct describes properties for a servo.
 typedef struct {
-  unsigned int pin;              // The hardware pin the servo is connected to
-  
-  unsigned int goal;             // The goal for the servo -- this gets set in loop()
-  int current;                   // The current servo position -- this gets updated every loop to move towards goal
+  unsigned int pin;
+  unsigned int goal;
+  int current;
   unsigned int min, max;
-  unsigned int speed;            // The speed to move the servo's current position to its goal
+  unsigned int speed;
 } ServoState;
 
 typedef enum {
@@ -70,26 +48,25 @@ typedef enum {
   DOME  = 2
 } ServoIndex;
 
-// Here the servo parameters for our three servos are set. The order is given by ServoIndex above.
 ServoState servoStates[3] = {
-  {SERVO_LEFT_PIN,  90, 90, 40, 150, 1},  // LEFT
-  {SERVO_RIGHT_PIN, 90, 90, 40, 150, 1},  // RIGHT
-  {SERVO_DOME_PIN,  90, 90, 40, 150, 1}   // DOME
+  {SERVO_LEFT_PIN,  SERVO_CENTER, SERVO_CENTER, SERVO_MIN, SERVO_MAX, SERVO_SPEED},
+  {SERVO_RIGHT_PIN, SERVO_CENTER, SERVO_CENTER, SERVO_MIN, SERVO_MAX, SERVO_SPEED},
+  {SERVO_DOME_PIN,  SERVO_CENTER, SERVO_CENTER, SERVO_MIN, SERVO_MAX, SERVO_SPEED}
 };
 
-// Servo objects
 Servo servoLeft;
 Servo servoRight;
 Servo servoDome;
 
 // ============================================================================
-// SOUND AND LED SUPPORT
+// SOUND SUPPORT (Optional)
 // ============================================================================
 
-// Object to talk to the sound player
+#if ENABLE_SOUND
 DFRobotDFPlayerMini dfp;
-// Serial connection to talk to the sound player (using HardwareSerial 1 to avoid conflict with debug Serial)
 HardwareSerial dfpSerial(1);
+bool soundEnabled = false;
+#endif
 
 // LED state
 bool ledState = false;
@@ -100,7 +77,7 @@ bool ledState = false;
 
 WebServer server(80);
 
-// HTML for the web interface - Clone Wars/Rebels inspired theme
+// HTML for the web interface - Clone Wars inspired theme
 const char* htmlPage = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -109,11 +86,7 @@ const char* htmlPage = R"rawliteral(
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>BB-R2 Control</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: 'Arial', sans-serif;
       background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
@@ -147,9 +120,7 @@ const char* htmlPage = R"rawliteral(
       max-width: 500px;
       width: 100%;
     }
-    .section {
-      margin-bottom: 25px;
-    }
+    .section { margin-bottom: 25px; }
     .section h2 {
       font-size: 1.2em;
       margin-bottom: 15px;
@@ -220,6 +191,8 @@ const char* htmlPage = R"rawliteral(
     .battery-low { color: #ff4444; }
     .battery-med { color: #ffaa00; }
     .battery-good { color: #00ff88; }
+    .sound-section { display: none; }
+    .sound-enabled .sound-section { display: block; }
   </style>
 </head>
 <body>
@@ -230,7 +203,6 @@ const char* htmlPage = R"rawliteral(
   <div class="subtitle">Bakken Museum Workshop Edition</div>
   
   <div class="control-panel">
-    <!-- Movement Controls -->
     <div class="section">
       <h2>Movement</h2>
       <div class="button-grid">
@@ -242,7 +214,6 @@ const char* htmlPage = R"rawliteral(
       </div>
     </div>
 
-    <!-- Dome Controls -->
     <div class="section">
       <h2>Dome Rotation</h2>
       <div class="button-grid">
@@ -252,18 +223,15 @@ const char* htmlPage = R"rawliteral(
       </div>
     </div>
 
-    <!-- Sound Controls -->
-    <div class="section">
+    <div class="section sound-section">
       <h2>Sounds</h2>
       <div class="button-grid">
         <button onclick="sendCmd('SND1')">🔊<br>Sound 1</button>
         <button onclick="sendCmd('SND2')">🔊<br>Sound 2</button>
         <button onclick="sendCmd('SND3')">🔊<br>Sound 3</button>
-        <button onclick="sendCmd('SNDNEXT')" style="grid-column: span 3;">⏭<br>Next Sound</button>
       </div>
     </div>
 
-    <!-- LED Controls -->
     <div class="section">
       <h2>LED Control</h2>
       <div class="button-grid-2">
@@ -276,10 +244,6 @@ const char* htmlPage = R"rawliteral(
   </div>
 
   <script>
-    // Battery level thresholds
-    const BATTERY_LOW_THRESHOLD = 20;
-    const BATTERY_MED_THRESHOLD = 50;
-    
     function sendCmd(cmd) {
       fetch('/cmd?c=' + cmd)
         .then(response => response.text())
@@ -297,16 +261,24 @@ const char* htmlPage = R"rawliteral(
         .then(b => {
           const el = document.getElementById('batt');
           el.innerText = b;
-          el.className = b < BATTERY_LOW_THRESHOLD ? 'battery-low' : b < BATTERY_MED_THRESHOLD ? 'battery-med' : 'battery-good';
+          el.className = b < 20 ? 'battery-low' : b < 50 ? 'battery-med' : 'battery-good';
         })
         .catch(e => console.log(e));
     }
-    // Update every 10 seconds
-    setInterval(updateBattery, 10000);
-    // Initial read
-    updateBattery();
     
-    // Prevent scrolling on touch for better control experience
+    function checkSound() {
+      fetch('/status')
+        .then(r => r.json())
+        .then(s => {
+          if(s.sound) document.body.classList.add('sound-enabled');
+        })
+        .catch(e => {});
+    }
+    
+    setInterval(updateBattery, 10000);
+    updateBattery();
+    checkSound();
+    
     document.body.addEventListener('touchmove', function(e) {
       e.preventDefault();
     }, { passive: false });
@@ -316,23 +288,24 @@ const char* htmlPage = R"rawliteral(
 )rawliteral";
 
 // ============================================================================
-// BATTERY MONITOR FUNCTIONS
+// BATTERY MONITOR
 // ============================================================================
 
+#if ENABLE_BATTERY_MON
 float getBatteryVoltage() {
   int raw = analogRead(BATTERY_PIN);
-  float voltage = (raw / (float)ADC_MAX_VALUE) * 3.3;  // ADC reading to voltage at pin
-  voltage = voltage * ((R1 + R2) / R2);   // Account for voltage divider
+  float voltage = (raw / (float)ADC_RESOLUTION) * 3.3;
+  voltage = voltage * ((BATTERY_R1 + BATTERY_R2) / BATTERY_R2);
   return voltage;
 }
 
 int getBatteryPercent() {
   float v = getBatteryVoltage();
-  // Map battery voltage to percentage (4.4V empty to 6.0V full)
   int vMillivolts = (int)(v * 1000);
   int percent = map(vMillivolts, BATTERY_MIN_MV, BATTERY_MAX_MV, 0, 100);
   return constrain(percent, 0, 100);
 }
+#endif
 
 // ============================================================================
 // WEB SERVER HANDLERS
@@ -343,8 +316,23 @@ void handleRoot() {
 }
 
 void handleBattery() {
+#if ENABLE_BATTERY_MON
   int percent = getBatteryPercent();
   server.send(200, "text/plain", String(percent));
+#else
+  server.send(200, "text/plain", "100");
+#endif
+}
+
+void handleStatus() {
+  String json = "{";
+#if ENABLE_SOUND
+  json += "\"sound\":" + String(soundEnabled ? "true" : "false");
+#else
+  json += "\"sound\":false";
+#endif
+  json += "}";
+  server.send(200, "application/json", json);
 }
 
 void handleCommand() {
@@ -358,55 +346,52 @@ void handleCommand() {
 }
 
 void processCommand(String cmd) {
-  Serial.println("Command received: " + cmd);
+#if DEBUG_SERIAL
+  Serial.println("Command: " + cmd);
+#endif
   
-  // Movement commands
+  // Movement commands - using config values
   if (cmd == "F") {
-    // Forward
-    servoStates[LEFT].goal = 130;
-    servoStates[RIGHT].goal = 130;
+    servoStates[LEFT].goal = SERVO_CENTER + DRIVE_SPEED;
+    servoStates[RIGHT].goal = SERVO_CENTER + DRIVE_SPEED;
   } else if (cmd == "B") {
-    // Backward
-    servoStates[LEFT].goal = 50;
-    servoStates[RIGHT].goal = 50;
+    servoStates[LEFT].goal = SERVO_CENTER - DRIVE_SPEED;
+    servoStates[RIGHT].goal = SERVO_CENTER - DRIVE_SPEED;
   } else if (cmd == "L") {
-    // Left turn
-    servoStates[LEFT].goal = 50;
-    servoStates[RIGHT].goal = 130;
+    servoStates[LEFT].goal = SERVO_CENTER - TURN_SPEED;
+    servoStates[RIGHT].goal = SERVO_CENTER + TURN_SPEED;
   } else if (cmd == "R") {
-    // Right turn
-    servoStates[LEFT].goal = 130;
-    servoStates[RIGHT].goal = 50;
+    servoStates[LEFT].goal = SERVO_CENTER + TURN_SPEED;
+    servoStates[RIGHT].goal = SERVO_CENTER - TURN_SPEED;
   } else if (cmd == "S") {
-    // Stop
-    servoStates[LEFT].goal = 90;
-    servoStates[RIGHT].goal = 90;
+    servoStates[LEFT].goal = SERVO_CENTER;
+    servoStates[RIGHT].goal = SERVO_CENTER;
   }
   
   // Dome commands
   else if (cmd == "DL") {
-    // Dome left
-    servoStates[DOME].goal = 40;
+    servoStates[DOME].goal = SERVO_CENTER - DOME_SPEED;
   } else if (cmd == "DR") {
-    // Dome right
-    servoStates[DOME].goal = 150;
+    servoStates[DOME].goal = SERVO_CENTER + DOME_SPEED;
   } else if (cmd == "DS") {
-    // Dome stop
-    servoStates[DOME].goal = 90;
+    servoStates[DOME].goal = SERVO_CENTER;
   }
   
   // Sound commands
-  else if (cmd == "SND1") {
+#if ENABLE_SOUND
+  else if (cmd == "SND1" && soundEnabled) {
     dfp.play(1);
-  } else if (cmd == "SND2") {
+  } else if (cmd == "SND2" && soundEnabled) {
     dfp.play(2);
-  } else if (cmd == "SND3") {
+  } else if (cmd == "SND3" && soundEnabled) {
     dfp.play(3);
-  } else if (cmd == "SNDNEXT") {
+  } else if (cmd == "SNDNEXT" && soundEnabled) {
     dfp.next();
   }
+#endif
   
   // LED commands
+#if ENABLE_LED
   else if (cmd == "LED_ON") {
     ledState = true;
     digitalWrite(LED_PIN, HIGH);
@@ -414,31 +399,24 @@ void processCommand(String cmd) {
     ledState = false;
     digitalWrite(LED_PIN, LOW);
   }
+#endif
 }
 
 // ============================================================================
-// SERVO MOVEMENT - Preserving Bjoern's smooth interpolation
+// SERVO MOVEMENT - Bjoern's smooth interpolation
 // ============================================================================
 
 void moveServos() {
-  // Move each servo's current position towards its goal
   for(auto& s: servoStates) {
-    // Move servo current towards servo goal...
     if(s.current < s.goal) {
       s.current += s.speed;
     } else if(s.current > s.goal) {
       s.current -= s.speed;
     }
 
-    // Enforce limits
-    if(s.current < s.min) {
-      s.current = s.min;
-    }
-    if(s.current > s.max) {
-      s.current = s.max;
-    }
+    if(s.current < s.min) s.current = s.min;
+    if(s.current > s.max) s.current = s.max;
 
-    // Write to the appropriate servo
     if(s.pin == SERVO_LEFT_PIN) {
       servoLeft.write(s.current);
     } else if(s.pin == SERVO_RIGHT_PIN) {
@@ -454,61 +432,93 @@ void moveServos() {
 // ============================================================================
 
 void setup() {
-  Serial.begin(115200);
-  Serial.println("\n\n==========================================");
+#if DEBUG_SERIAL
+  Serial.begin(SERIAL_BAUD);
+  Serial.println("\n==========================================");
   Serial.println("BB-R2 WiFi Control - Bakken Museum Edition");
-  Serial.println("Based on BB-R2 ESP32 by Bjoern Giesler, 2023");
-  Serial.println("==========================================\n");
+  Serial.println("==========================================");
+  Serial.print("Droid: ");
+  Serial.println(WIFI_SSID);
+  Serial.print("Board: ");
+#ifdef BOARD_XIAO_ESP32C3
+  Serial.println("Xiao ESP32C3");
+#elif defined(BOARD_ESP32_DEVKIT)
+  Serial.println("ESP32 DevKit");
+#endif
+  Serial.println("------------------------------------------");
+#endif
 
   // Initialize LED
+#if ENABLE_LED
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
+#endif
 
   // Initialize servos
   servoLeft.attach(SERVO_LEFT_PIN);
   servoRight.attach(SERVO_RIGHT_PIN);
   servoDome.attach(SERVO_DOME_PIN);
   
-  // Set initial servo positions
-  servoLeft.write(90);
-  servoRight.write(90);
-  servoDome.write(90);
+  servoLeft.write(SERVO_CENTER);
+  servoRight.write(SERVO_CENTER);
+  servoDome.write(SERVO_CENTER);
   
+#if DEBUG_SERIAL
   Serial.println("Servos initialized");
+  Serial.print("  Left:  GPIO "); Serial.println(SERVO_LEFT_PIN);
+  Serial.print("  Right: GPIO "); Serial.println(SERVO_RIGHT_PIN);
+  Serial.print("  Dome:  GPIO "); Serial.println(SERVO_DOME_PIN);
+#endif
 
   // Initialize DFPlayer
-  dfpSerial.begin(9600, SERIAL_8N1, RX, TX);
-  delay(1000);  // Give DFPlayer time to initialize
+#if ENABLE_SOUND
+  dfpSerial.begin(9600, SERIAL_8N1, DFPLAYER_RX, DFPLAYER_TX);
+  delay(1000);
   
   if(!dfp.begin(dfpSerial)) {
-    Serial.println("DFPlayer initialization failed!");
-    Serial.println("Check connections or continue without sound");
+#if DEBUG_SERIAL
+    Serial.println("DFPlayer: Not found (continuing without sound)");
+#endif
+    soundEnabled = false;
   } else {
-    Serial.println("DFPlayer initialized");
-    dfp.volume(20);  // Set volume (0-30)
+#if DEBUG_SERIAL
+    Serial.println("DFPlayer: Initialized");
+    Serial.print("  RX: GPIO "); Serial.println(DFPLAYER_RX);
+    Serial.print("  TX: GPIO "); Serial.println(DFPLAYER_TX);
+#endif
+    dfp.volume(20);
+    soundEnabled = true;
   }
+#endif
 
   // Set up WiFi Access Point
-  Serial.println("\nConfiguring WiFi Access Point...");
-  WiFi.softAP(ssid, password);
+#if DEBUG_SERIAL
+  Serial.println("------------------------------------------");
+  Serial.println("Starting WiFi Access Point...");
+#endif
+  
+  WiFi.softAP(WIFI_SSID, WIFI_PASS);
   
   IPAddress IP = WiFi.softAPIP();
-  Serial.print("AP IP address: ");
-  Serial.println(IP);
-  Serial.print("SSID: ");
-  Serial.println(ssid);
-  Serial.print("Password: ");
-  Serial.println(password);
+#if DEBUG_SERIAL
+  Serial.print("  SSID:     "); Serial.println(WIFI_SSID);
+  Serial.print("  Password: "); Serial.println(WIFI_PASS);
+  Serial.print("  IP:       "); Serial.println(IP);
+#endif
 
   // Set up web server routes
   server.on("/", handleRoot);
   server.on("/cmd", handleCommand);
   server.on("/battery", handleBattery);
+  server.on("/status", handleStatus);
   
   server.begin();
-  Serial.println("\nWeb server started");
-  Serial.println("Connect to WiFi and navigate to http://192.168.4.1");
+  
+#if DEBUG_SERIAL
+  Serial.println("------------------------------------------");
+  Serial.println("Ready! Connect to WiFi and open browser.");
   Serial.println("==========================================\n");
+#endif
 }
 
 // ============================================================================
@@ -516,12 +526,7 @@ void setup() {
 // ============================================================================
 
 void loop() {
-  // Handle web server requests
   server.handleClient();
-  
-  // Update servo positions with smooth interpolation
   moveServos();
-  
-  // Small delay for stability
   delay(10);
 }
