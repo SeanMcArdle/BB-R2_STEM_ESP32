@@ -1,532 +1,596 @@
 /*
  * BB-R2 WiFi Control - Bakken Museum Workshop Version
  * 
- * Based on the original BB-R2 ESP32 project by Bjoern Giesler, 2023
- * Modified for WiFi control and educational workshops at The Bakken Museum
+ * CREDITS:
+ * - Droid Design: Michael Baddeley (Mr Baddeley)
+ *   patreon.com/mrbaddeley | youtube.com/@MrBaddeley
+ *   Creator of the BB-R2 "Baby R2" 3D printable droid family
  * 
- * This version creates a WiFi Access Point that allows control via a web browser,
- * making it ideal for workshops where multiple droids need to be controlled
- * independently without Bluetooth pairing.
+ * - Original ESP32 Code: Bjoern Giesler (2023)
+ *   Stuttgart Comic Con droid building workshop
+ * 
+ * - WiFi Control Version: Seán McArdle / Hero Props (2025)
+ *   heroprops.art | github.com/SeanMcArdle
+ *   Adapted for The Bakken Museum STEAM workshop
  * 
  * Licensed under Apache License 2.0
- * 
- * Workshop: December 30-31, 2025
- * Location: The Bakken Museum, Minneapolis, MN
- * 
- * SETUP INSTRUCTIONS:
- * 1. Edit config.h to set DROID_NUMBER (0-16)
- * 2. Edit config.h to select your BOARD_TYPE
- * 3. Upload to ESP32
- * 4. Connect to WiFi network "R2-BKxx" (password: droidBKxx)
- * 5. Open browser to http://192.168.4.1
  */
 
-#include "config.h"
+// ============================================================
+// CONFIGURATION - EDIT THIS SECTION FOR EACH DROID
+// ============================================================
+
+// DROID IDENTITY (0-16, where 0 = demo unit)
+#define DROID_NUMBER 0
+
+// WiFi credentials are auto-generated from DROID_NUMBER:
+// DROID_NUMBER 0  → SSID: "R2-BK00", Password: "droidBK00"
+// DROID_NUMBER 1  → SSID: "R2-BK01", Password: "droidBK01"
+// etc.
+
+// SERVO SPEEDS (1-10, higher = faster response)
+#define DRIVE_SPEED 5
+#define TURN_SPEED 5
+#define DOME_SPEED 5
+
+// FEATURES (comment out to disable)
+#define ENABLE_SOUND        // DFPlayer Mini for R2 sounds
+#define ENABLE_BATTERY_MON  // Battery voltage monitoring
+#define ENABLE_NEOPIXEL     // NeoPixel RGB LED
+
+// DEBUG (uncomment for Serial output)
+#define DEBUG_SERIAL
+
+// ============================================================
+// PIN DEFINITIONS - ESP32 DevKit (30-pin NodeMCU style)
+// ============================================================
+
+#define PIN_LEFT_SERVO   13   // Left wheel (360° continuous)
+#define PIN_RIGHT_SERVO  12   // Right wheel (360° continuous)
+#define PIN_DOME_SERVO   14   // Dome rotation (180° standard)
+#define PIN_NEOPIXEL     4    // NeoPixel data pin
+#define PIN_DFPLAYER_RX  16   // DFPlayer TX → ESP32 RX
+#define PIN_DFPLAYER_TX  17   // DFPlayer RX ← ESP32 TX (use 1K resistor)
+#define PIN_BATTERY      34   // Battery voltage (ADC, optional)
+
+// ============================================================
+// END CONFIGURATION - Don't edit below unless you know why
+// ============================================================
+
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESP32Servo.h>
 
-#if ENABLE_SOUND
+#ifdef ENABLE_SOUND
+#include <HardwareSerial.h>
 #include <DFRobotDFPlayerMini.h>
+HardwareSerial dfSerial(2);  // Use UART2
+DFRobotDFPlayerMini dfPlayer;
+bool soundAvailable = false;
 #endif
 
-// ============================================================================
-// SERVO CONTROL - Preserving Bjoern's elegant architecture
-// ============================================================================
-
-typedef struct {
-  unsigned int pin;
-  unsigned int goal;
-  int current;
-  unsigned int min, max;
-  unsigned int speed;
-} ServoState;
-
-typedef enum {
-  LEFT  = 0,
-  RIGHT = 1,
-  DOME  = 2
-} ServoIndex;
-
-ServoState servoStates[3] = {
-  {SERVO_LEFT_PIN,  SERVO_CENTER, SERVO_CENTER, SERVO_MIN, SERVO_MAX, SERVO_SPEED},
-  {SERVO_RIGHT_PIN, SERVO_CENTER, SERVO_CENTER, SERVO_MIN, SERVO_MAX, SERVO_SPEED},
-  {SERVO_DOME_PIN,  SERVO_CENTER, SERVO_CENTER, SERVO_MIN, SERVO_MAX, SERVO_SPEED}
-};
-
-Servo servoLeft;
-Servo servoRight;
-Servo servoDome;
-
-// ============================================================================
-// SOUND SUPPORT (Optional)
-// ============================================================================
-
-#if ENABLE_SOUND
-DFRobotDFPlayerMini dfp;
-HardwareSerial dfpSerial(1);
-bool soundEnabled = false;
+#ifdef ENABLE_NEOPIXEL
+#include <Adafruit_NeoPixel.h>
+Adafruit_NeoPixel pixel(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
+uint8_t pixelR = 0, pixelG = 255, pixelB = 255;  // Default: cyan (Clone Wars theme)
+bool pixelOn = true;
 #endif
 
-// LED state
-bool ledState = false;
+// Generate WiFi credentials from droid number
+String getDroidSSID() {
+  char ssid[12];
+  sprintf(ssid, "R2-BK%02d", DROID_NUMBER);
+  return String(ssid);
+}
 
-// ============================================================================
-// WEB SERVER
-// ============================================================================
+String getDroidPassword() {
+  char pass[12];
+  sprintf(pass, "droidBK%02d", DROID_NUMBER);
+  return String(pass);
+}
 
+// Servo objects
+Servo leftServo;
+Servo rightServo;
+Servo domeServo;
+
+// Web server on port 80
 WebServer server(80);
 
-// HTML for the web interface - Clone Wars inspired theme
-const char* htmlPage = R"rawliteral(
+// Forward declarations
+void handleRoot();
+void handleCommand();
+void handleStatus();
+
+// Current state
+int currentDomePos = 90;  // Center position
+
+// Servo control values
+const int SERVO_STOP = 90;
+const int SERVO_FULL_FWD = 180;
+const int SERVO_FULL_REV = 0;
+
+void setup() {
+  #ifdef DEBUG_SERIAL
+  Serial.begin(115200);
+  Serial.println("\n\n=== BB-R2 WiFi Control ===");
+  Serial.print("Droid: R2-BK");
+  if (DROID_NUMBER < 10) Serial.print("0");
+  Serial.println(DROID_NUMBER);
+  #endif
+
+  // Initialize NeoPixel
+  #ifdef ENABLE_NEOPIXEL
+  pixel.begin();
+  pixel.setPixelColor(0, pixel.Color(pixelR, pixelG, pixelB));
+  pixel.show();
+  #endif
+
+  // Initialize servos
+  ESP32PWM::allocateTimer(0);
+  ESP32PWM::allocateTimer(1);
+  ESP32PWM::allocateTimer(2);
+  
+  leftServo.setPeriodHertz(50);
+  rightServo.setPeriodHertz(50);
+  domeServo.setPeriodHertz(50);
+  
+  leftServo.attach(PIN_LEFT_SERVO, 500, 2400);
+  rightServo.attach(PIN_RIGHT_SERVO, 500, 2400);
+  domeServo.attach(PIN_DOME_SERVO, 500, 2400);
+  
+  // Start with everything stopped/centered
+  leftServo.write(SERVO_STOP);
+  rightServo.write(SERVO_STOP);
+  domeServo.write(currentDomePos);
+
+  #ifdef DEBUG_SERIAL
+  Serial.println("Servos initialized");
+  #endif
+
+  // Initialize DFPlayer
+  #ifdef ENABLE_SOUND
+  dfSerial.begin(9600, SERIAL_8N1, PIN_DFPLAYER_RX, PIN_DFPLAYER_TX);
+  delay(1000);  // Give DFPlayer time to boot
+  
+  if (dfPlayer.begin(dfSerial)) {
+    soundAvailable = true;
+    dfPlayer.volume(20);  // 0-30
+    #ifdef DEBUG_SERIAL
+    Serial.println("DFPlayer initialized");
+    Serial.print("Files on SD: ");
+    Serial.println(dfPlayer.readFileCounts());
+    #endif
+  } else {
+    #ifdef DEBUG_SERIAL
+    Serial.println("DFPlayer not found - sound disabled");
+    #endif
+  }
+  #endif
+
+  // Start WiFi Access Point
+  String ssid = getDroidSSID();
+  String password = getDroidPassword();
+  
+  WiFi.softAP(ssid.c_str(), password.c_str());
+  
+  #ifdef DEBUG_SERIAL
+  Serial.println("\nWiFi Access Point started:");
+  Serial.print("  SSID: ");
+  Serial.println(ssid);
+  Serial.print("  Password: ");
+  Serial.println(password);
+  Serial.print("  /Users/seanmcardle/Documents/Hero Props Projects/Hero Props Droid Workshops/Mini Chopper/My Build/Sketches/chopper_motor_test.inoIP: ");
+  Serial.println(WiFi.softAPIP());
+  #endif
+
+  // Set up web server routes
+  server.on("/", handleRoot);
+  server.on("/cmd", handleCommand);
+  server.on("/status", handleStatus);
+  server.begin();
+
+  #ifdef DEBUG_SERIAL
+  Serial.println("\nWeb server started - connect and browse to http://192.168.4.1");
+  #endif
+
+  // Startup animation
+  #ifdef ENABLE_NEOPIXEL
+  for (int i = 0; i < 3; i++) {
+    pixel.setPixelColor(0, pixel.Color(0, 255, 255));  // Cyan
+    pixel.show();
+    delay(100);
+    pixel.setPixelColor(0, pixel.Color(0, 0, 0));      // Off
+    pixel.show();
+    delay(100);
+  }
+  pixel.setPixelColor(0, pixel.Color(pixelR, pixelG, pixelB));
+  pixel.show();
+  #endif
+
+  // Startup sound
+  #ifdef ENABLE_SOUND
+  if (soundAvailable) {
+    dfPlayer.play(1);  // Play first sound file
+  }
+  #endif
+}
+
+void loop() {
+  server.handleClient();
+}
+
+// ============================================================
+// MOVEMENT FUNCTIONS
+// ============================================================
+
+void driveForward() {
+  int speed = map(DRIVE_SPEED, 1, 10, 95, 180);
+  leftServo.write(speed);
+  rightServo.write(180 - speed);  // Opposite direction
+}
+
+void driveBackward() {
+  int speed = map(DRIVE_SPEED, 1, 10, 85, 0);
+  leftServo.write(speed);
+  rightServo.write(180 - speed);
+}
+
+void turnLeft() {
+  int speed = map(TURN_SPEED, 1, 10, 95, 130);
+  leftServo.write(180 - speed);  // Reverse
+  rightServo.write(180 - speed); // Forward
+}
+
+void turnRight() {
+  int speed = map(TURN_SPEED, 1, 10, 95, 130);
+  leftServo.write(speed);        // Forward
+  rightServo.write(speed);       // Reverse
+}
+
+void stopDrive() {
+  leftServo.write(SERVO_STOP);
+  rightServo.write(SERVO_STOP);
+}
+
+void domeLeft() {
+  currentDomePos = constrain(currentDomePos - (DOME_SPEED * 3), 0, 180);
+  domeServo.write(currentDomePos);
+}
+
+void domeRight() {
+  currentDomePos = constrain(currentDomePos + (DOME_SPEED * 3), 0, 180);
+  domeServo.write(currentDomePos);
+}
+
+void domeCenter() {
+  currentDomePos = 90;
+  domeServo.write(currentDomePos);
+}
+
+// ============================================================
+// WEB SERVER HANDLERS
+// ============================================================
+
+void handleRoot() {
+  String html = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>BB-R2 Control</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>R2-BK)rawliteral";
+  
+  html += (DROID_NUMBER < 10 ? "0" : "") + String(DROID_NUMBER);
+  
+  html += R"rawliteral( Control</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { box-sizing: border-box; touch-action: manipulation; }
     body {
-      font-family: 'Arial', sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      color: #00fff5;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      font-family: -apple-system, Arial, sans-serif;
+      background: #1a1a2e;
+      color: #0ff;
+      margin: 0;
+      padding: 15px;
       min-height: 100vh;
-      padding: 20px;
-      touch-action: manipulation;
     }
     h1 {
       text-align: center;
-      margin-bottom: 10px;
-      text-shadow: 0 0 10px #00fff5;
-      font-size: 2em;
+      font-size: 24px;
+      margin: 0 0 15px 0;
+      text-shadow: 0 0 10px #0ff;
     }
-    .subtitle {
-      text-align: center;
-      color: #888;
-      margin-bottom: 30px;
-      font-size: 0.9em;
-    }
-    .control-panel {
-      background: rgba(0, 0, 0, 0.5);
-      border: 2px solid #00fff5;
-      border-radius: 15px;
-      padding: 20px;
-      box-shadow: 0 0 20px rgba(0, 255, 245, 0.3);
-      max-width: 500px;
-      width: 100%;
-    }
-    .section { margin-bottom: 25px; }
-    .section h2 {
-      font-size: 1.2em;
+    .panel {
+      background: #16213e;
+      border: 2px solid #0f4c75;
+      border-radius: 10px;
+      padding: 15px;
       margin-bottom: 15px;
-      color: #00fff5;
-      text-transform: uppercase;
-      letter-spacing: 2px;
     }
-    .button-grid {
+    .panel h2 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+      color: #888;
+      text-transform: uppercase;
+    }
+    .btn-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
+      gap: 8px;
     }
-    .button-grid-2 {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
-    }
-    button {
-      background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
-      border: 2px solid #00fff5;
-      color: #00fff5;
-      padding: 20px;
-      font-size: 1.1em;
-      font-weight: bold;
-      border-radius: 10px;
+    .btn {
+      background: #0f4c75;
+      border: none;
+      border-radius: 8px;
+      color: #0ff;
+      padding: 20px 10px;
+      font-size: 20px;
       cursor: pointer;
-      transition: all 0.2s;
-      touch-action: manipulation;
-      -webkit-tap-highlight-color: transparent;
-      text-transform: uppercase;
+      transition: all 0.1s;
     }
-    button:active {
-      background: linear-gradient(135deg, #00fff5 0%, #0f3460 100%);
-      color: #16213e;
-      transform: scale(0.95);
-      box-shadow: 0 0 15px #00fff5;
+    .btn:active { background: #0ff; color: #1a1a2e; }
+    .btn.center { background: #1b262c; }
+    .sound-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
     }
-    .btn-forward { grid-column: 2; }
-    .btn-backward { grid-column: 2; }
-    .btn-left { grid-column: 1; }
-    .btn-right { grid-column: 3; }
-    .btn-stop {
-      grid-column: 2;
-      background: linear-gradient(135deg, #8B0000 0%, #550000 100%);
-      border-color: #ff0000;
+    .sound-btn {
+      background: #2d4059;
+      border: none;
+      border-radius: 8px;
+      color: #0ff;
+      padding: 15px 5px;
+      font-size: 12px;
+      cursor: pointer;
     }
-    .btn-stop:active {
-      background: linear-gradient(135deg, #ff0000 0%, #8B0000 100%);
-      box-shadow: 0 0 15px #ff0000;
-    }
+    .sound-btn:active { background: #0ff; color: #1a1a2e; }
     .status {
       text-align: center;
-      margin-top: 20px;
       padding: 10px;
-      background: rgba(0, 255, 245, 0.1);
-      border-radius: 8px;
-      font-size: 0.9em;
+      font-family: monospace;
+      font-size: 12px;
+      color: #666;
     }
-    .battery-indicator {
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      padding: 8px 12px;
-      background: #16213e;
-      border-radius: 8px;
+    .toggle-row {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 10px;
+    }
+    .toggle-btn {
+      background: #2d4059;
+      border: 2px solid #0f4c75;
+      border-radius: 20px;
+      color: #0ff;
+      padding: 10px 20px;
       font-size: 14px;
+      cursor: pointer;
     }
-    .battery-low { color: #ff4444; }
-    .battery-med { color: #ffaa00; }
-    .battery-good { color: #00ff88; }
-    .sound-section { display: none; }
-    .sound-enabled .sound-section { display: block; }
+    .toggle-btn.active {
+      background: #0ff;
+      color: #1a1a2e;
+    }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
-  <div class="battery-indicator">
-    🔋 <span id="batt">--</span>%
-  </div>
-  <h1>🤖 BB-R2 CONTROL</h1>
-  <div class="subtitle">Bakken Museum Workshop Edition</div>
+  <h1>🤖 R2-BK)rawliteral";
+
+  html += (DROID_NUMBER < 10 ? "0" : "") + String(DROID_NUMBER);
+
+  html += R"rawliteral(</h1>
   
-  <div class="control-panel">
-    <div class="section">
-      <h2>Movement</h2>
-      <div class="button-grid">
-        <button class="btn-forward" ontouchstart="sendCmd('F')" ontouchend="sendCmd('S')" onmousedown="sendCmd('F')" onmouseup="sendCmd('S')">▲<br>Forward</button>
-        <button class="btn-left" ontouchstart="sendCmd('L')" ontouchend="sendCmd('S')" onmousedown="sendCmd('L')" onmouseup="sendCmd('S')">◄<br>Left</button>
-        <button class="btn-stop" onclick="sendCmd('S')">■<br>Stop</button>
-        <button class="btn-right" ontouchstart="sendCmd('R')" ontouchend="sendCmd('S')" onmousedown="sendCmd('R')" onmouseup="sendCmd('S')">►<br>Right</button>
-        <button class="btn-backward" ontouchstart="sendCmd('B')" ontouchend="sendCmd('S')" onmousedown="sendCmd('B')" onmouseup="sendCmd('S')">▼<br>Back</button>
-      </div>
+  <div class="panel">
+    <h2>Drive</h2>
+    <div class="btn-grid">
+      <div></div>
+      <button class="btn" ontouchstart="cmd('fwd')" ontouchend="cmd('stop')" onmousedown="cmd('fwd')" onmouseup="cmd('stop')">▲</button>
+      <div></div>
+      <button class="btn" ontouchstart="cmd('left')" ontouchend="cmd('stop')" onmousedown="cmd('left')" onmouseup="cmd('stop')">◄</button>
+      <button class="btn center" onclick="cmd('stop')">■</button>
+      <button class="btn" ontouchstart="cmd('right')" ontouchend="cmd('stop')" onmousedown="cmd('right')" onmouseup="cmd('stop')">►</button>
+      <div></div>
+      <button class="btn" ontouchstart="cmd('back')" ontouchend="cmd('stop')" onmousedown="cmd('back')" onmouseup="cmd('stop')">▼</button>
+      <div></div>
     </div>
-
-    <div class="section">
-      <h2>Dome Rotation</h2>
-      <div class="button-grid">
-        <button ontouchstart="sendCmd('DL')" ontouchend="sendCmd('DS')" onmousedown="sendCmd('DL')" onmouseup="sendCmd('DS')">◄<br>Dome Left</button>
-        <button onclick="sendCmd('DS')">■<br>Stop</button>
-        <button ontouchstart="sendCmd('DR')" ontouchend="sendCmd('DS')" onmousedown="sendCmd('DR')" onmouseup="sendCmd('DS')">►<br>Dome Right</button>
-      </div>
-    </div>
-
-    <div class="section sound-section">
-      <h2>Sounds</h2>
-      <div class="button-grid">
-        <button onclick="sendCmd('SND1')">🔊<br>Sound 1</button>
-        <button onclick="sendCmd('SND2')">🔊<br>Sound 2</button>
-        <button onclick="sendCmd('SND3')">🔊<br>Sound 3</button>
-      </div>
-    </div>
-
-    <div class="section">
-      <h2>LED Control</h2>
-      <div class="button-grid-2">
-        <button onclick="sendCmd('LED_ON')">💡<br>LED On</button>
-        <button onclick="sendCmd('LED_OFF')">○<br>LED Off</button>
-      </div>
-    </div>
-
-    <div class="status" id="status">Ready to control</div>
   </div>
+
+  <div class="panel">
+    <h2>Dome</h2>
+    <div class="btn-grid">
+      <button class="btn" onclick="cmd('dome_left')">↶</button>
+      <button class="btn center" onclick="cmd('dome_center')">⌾</button>
+      <button class="btn" onclick="cmd('dome_right')">↷</button>
+    </div>
+  </div>
+
+  <div class="panel)rawliteral";
+
+  #ifdef ENABLE_SOUND
+  html += R"rawliteral(">
+    <h2>Sounds</h2>
+    <div class="sound-grid">
+      <button class="sound-btn" onclick="cmd('snd1')">Beep 1</button>
+      <button class="sound-btn" onclick="cmd('snd2')">Beep 2</button>
+      <button class="sound-btn" onclick="cmd('snd3')">Beep 3</button>
+      <button class="sound-btn" onclick="cmd('snd4')">Scream</button>
+      <button class="sound-btn" onclick="cmd('snd5')">Happy</button>
+      <button class="sound-btn" onclick="cmd('snd6')">Sad</button>
+      <button class="sound-btn" onclick="cmd('snd7')">Whistle</button>
+      <button class="sound-btn" onclick="cmd('snd8')">Alarm</button>
+    </div>
+  </div>)rawliteral";
+  #else
+  html += R"rawliteral( hidden"></div>)rawliteral";
+  #endif
+
+  html += R"rawliteral(
+
+  <div class="panel">
+    <h2>Options</h2>
+    <div class="toggle-row">
+      <button class="toggle-btn" id="ledBtn" onclick="toggleLED()">💡 Light</button>
+      <button class="toggle-btn" onclick="cmd('vol_up')">🔊 Vol+</button>
+      <button class="toggle-btn" onclick="cmd('vol_down')">🔉 Vol-</button>
+    </div>
+    <div class="toggle-row" style="margin-top:8px;">
+      <button class="toggle-btn" style="background:#0ff;color:#000;" onclick="cmd('color_cyan')">Cyan</button>
+      <button class="toggle-btn" style="background:#f00;" onclick="cmd('color_red')">Red</button>
+      <button class="toggle-btn" style="background:#0f0;color:#000;" onclick="cmd('color_green')">Green</button>
+      <button class="toggle-btn" style="background:#ff0;color:#000;" onclick="cmd('color_gold')">Gold</button>
+    </div>
+  </div>
+
+  <div class="status" id="status">Ready</div>
 
   <script>
-    function sendCmd(cmd) {
-      fetch('/cmd?c=' + cmd)
-        .then(response => response.text())
-        .then(data => {
-          document.getElementById('status').innerText = 'Command: ' + cmd;
-        })
-        .catch(error => {
-          document.getElementById('status').innerText = 'Error: ' + error;
-        });
-    }
-    
-    function updateBattery() {
-      fetch('/battery')
+    function cmd(c) {
+      fetch('/cmd?c=' + c)
         .then(r => r.text())
-        .then(b => {
-          const el = document.getElementById('batt');
-          el.innerText = b;
-          el.className = b < 20 ? 'battery-low' : b < 50 ? 'battery-med' : 'battery-good';
-        })
-        .catch(e => console.log(e));
+        .then(t => document.getElementById('status').innerText = t)
+        .catch(e => document.getElementById('status').innerText = 'Error');
     }
     
-    function checkSound() {
-      fetch('/status')
-        .then(r => r.json())
-        .then(s => {
-          if(s.sound) document.body.classList.add('sound-enabled');
-        })
-        .catch(e => {});
+    function toggleLED() {
+      cmd('led');
+      document.getElementById('ledBtn').classList.toggle('active');
     }
-    
-    setInterval(updateBattery, 10000);
-    updateBattery();
-    checkSound();
-    
-    document.body.addEventListener('touchmove', function(e) {
-      e.preventDefault();
-    }, { passive: false });
+
+    // Prevent context menu on long press
+    document.addEventListener('contextmenu', e => e.preventDefault());
   </script>
 </body>
 </html>
 )rawliteral";
 
-// ============================================================================
-// BATTERY MONITOR
-// ============================================================================
-
-#if ENABLE_BATTERY_MON
-float getBatteryVoltage() {
-  int raw = analogRead(BATTERY_PIN);
-  float voltage = (raw / (float)ADC_RESOLUTION) * 3.3;
-  voltage = voltage * ((BATTERY_R1 + BATTERY_R2) / BATTERY_R2);
-  return voltage;
+  server.send(200, "text/html", html);
 }
 
-int getBatteryPercent() {
-  float v = getBatteryVoltage();
-  int vMillivolts = (int)(v * 1000);
-  int percent = map(vMillivolts, BATTERY_MIN_MV, BATTERY_MAX_MV, 0, 100);
-  return constrain(percent, 0, 100);
-}
-#endif
+void handleCommand() {
+  String cmd = server.arg("c");
+  String response = "OK: " + cmd;
 
-// ============================================================================
-// WEB SERVER HANDLERS
-// ============================================================================
+  // Drive commands
+  if (cmd == "fwd") {
+    driveForward();
+    response = "Driving forward";
+  }
+  else if (cmd == "back") {
+    driveBackward();
+    response = "Driving backward";
+  }
+  else if (cmd == "left") {
+    turnLeft();
+    response = "Turning left";
+  }
+  else if (cmd == "right") {
+    turnRight();
+    response = "Turning right";
+  }
+  else if (cmd == "stop") {
+    stopDrive();
+    response = "Stopped";
+  }
+  // Dome commands
+  else if (cmd == "dome_left") {
+    domeLeft();
+    response = "Dome: " + String(currentDomePos) + "°";
+  }
+  else if (cmd == "dome_right") {
+    domeRight();
+    response = "Dome: " + String(currentDomePos) + "°";
+  }
+  else if (cmd == "dome_center") {
+    domeCenter();
+    response = "Dome centered";
+  }
+  // NeoPixel commands
+  #ifdef ENABLE_NEOPIXEL
+  else if (cmd == "led") {
+    pixelOn = !pixelOn;
+    if (pixelOn) {
+      pixel.setPixelColor(0, pixel.Color(pixelR, pixelG, pixelB));
+    } else {
+      pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+    }
+    pixel.show();
+    response = pixelOn ? "Light ON" : "Light OFF";
+  }
+  else if (cmd == "color_cyan") {
+    pixelR = 0; pixelG = 255; pixelB = 255;
+    pixel.setPixelColor(0, pixel.Color(pixelR, pixelG, pixelB));
+    pixel.show();
+    pixelOn = true;
+    response = "Color: Cyan";
+  }
+  else if (cmd == "color_red") {
+    pixelR = 255; pixelG = 0; pixelB = 0;
+    pixel.setPixelColor(0, pixel.Color(pixelR, pixelG, pixelB));
+    pixel.show();
+    pixelOn = true;
+    response = "Color: Red";
+  }
+  else if (cmd == "color_green") {
+    pixelR = 0; pixelG = 255; pixelB = 0;
+    pixel.setPixelColor(0, pixel.Color(pixelR, pixelG, pixelB));
+    pixel.show();
+    pixelOn = true;
+    response = "Color: Green";
+  }
+  else if (cmd == "color_gold") {
+    pixelR = 255; pixelG = 180; pixelB = 0;
+    pixel.setPixelColor(0, pixel.Color(pixelR, pixelG, pixelB));
+    pixel.show();
+    pixelOn = true;
+    response = "Color: Gold";
+  }
+  #endif
+  // Sound commands
+  #ifdef ENABLE_SOUND
+  else if (cmd.startsWith("snd") && soundAvailable) {
+    int sndNum = cmd.substring(3).toInt();
+    if (sndNum >= 1 && sndNum <= 99) {
+      dfPlayer.play(sndNum);
+      response = "Playing sound " + String(sndNum);
+    }
+  }
+  else if (cmd == "vol_up" && soundAvailable) {
+    dfPlayer.volumeUp();
+    response = "Volume up";
+  }
+  else if (cmd == "vol_down" && soundAvailable) {
+    dfPlayer.volumeDown();
+    response = "Volume down";
+  }
+  #endif
 
-void handleRoot() {
-  server.send(200, "text/html", htmlPage);
-}
+  #ifdef DEBUG_SERIAL
+  Serial.println("CMD: " + cmd + " → " + response);
+  #endif
 
-void handleBattery() {
-#if ENABLE_BATTERY_MON
-  int percent = getBatteryPercent();
-  server.send(200, "text/plain", String(percent));
-#else
-  server.send(200, "text/plain", "100");
-#endif
+  server.send(200, "text/plain", response);
 }
 
 void handleStatus() {
   String json = "{";
-#if ENABLE_SOUND
-  json += "\"sound\":" + String(soundEnabled ? "true" : "false");
-#else
-  json += "\"sound\":false";
-#endif
+  json += "\"droid\":\"R2-BK" + String(DROID_NUMBER < 10 ? "0" : "") + String(DROID_NUMBER) + "\",";
+  json += "\"dome\":" + String(currentDomePos);
+  
+  #ifdef ENABLE_NEOPIXEL
+  json += ",\"light\":" + String(pixelOn ? "true" : "false");
+  json += ",\"color\":[" + String(pixelR) + "," + String(pixelG) + "," + String(pixelB) + "]";
+  #endif
+  
+  #ifdef ENABLE_SOUND
+  json += ",\"sound\":" + String(soundAvailable ? "true" : "false");
+  #endif
+  
+  #ifdef ENABLE_BATTERY_MON
+  int rawADC = analogRead(PIN_BATTERY);
+  float voltage = (rawADC / 4095.0) * 3.3 * 2;  // Assumes voltage divider
+  json += ",\"battery\":" + String(voltage, 2);
+  #endif
+  
   json += "}";
+  
   server.send(200, "application/json", json);
-}
-
-void handleCommand() {
-  if (server.hasArg("c")) {
-    String cmd = server.arg("c");
-    processCommand(cmd);
-    server.send(200, "text/plain", "OK");
-  } else {
-    server.send(400, "text/plain", "Missing command");
-  }
-}
-
-void processCommand(String cmd) {
-#if DEBUG_SERIAL
-  Serial.println("Command: " + cmd);
-#endif
-  
-  // Movement commands - using config values
-  if (cmd == "F") {
-    servoStates[LEFT].goal = SERVO_CENTER + DRIVE_SPEED;
-    servoStates[RIGHT].goal = SERVO_CENTER + DRIVE_SPEED;
-  } else if (cmd == "B") {
-    servoStates[LEFT].goal = SERVO_CENTER - DRIVE_SPEED;
-    servoStates[RIGHT].goal = SERVO_CENTER - DRIVE_SPEED;
-  } else if (cmd == "L") {
-    servoStates[LEFT].goal = SERVO_CENTER - TURN_SPEED;
-    servoStates[RIGHT].goal = SERVO_CENTER + TURN_SPEED;
-  } else if (cmd == "R") {
-    servoStates[LEFT].goal = SERVO_CENTER + TURN_SPEED;
-    servoStates[RIGHT].goal = SERVO_CENTER - TURN_SPEED;
-  } else if (cmd == "S") {
-    servoStates[LEFT].goal = SERVO_CENTER;
-    servoStates[RIGHT].goal = SERVO_CENTER;
-  }
-  
-  // Dome commands
-  else if (cmd == "DL") {
-    servoStates[DOME].goal = SERVO_CENTER - DOME_SPEED;
-  } else if (cmd == "DR") {
-    servoStates[DOME].goal = SERVO_CENTER + DOME_SPEED;
-  } else if (cmd == "DS") {
-    servoStates[DOME].goal = SERVO_CENTER;
-  }
-  
-  // Sound commands
-#if ENABLE_SOUND
-  else if (cmd == "SND1" && soundEnabled) {
-    dfp.play(1);
-  } else if (cmd == "SND2" && soundEnabled) {
-    dfp.play(2);
-  } else if (cmd == "SND3" && soundEnabled) {
-    dfp.play(3);
-  } else if (cmd == "SNDNEXT" && soundEnabled) {
-    dfp.next();
-  }
-#endif
-  
-  // LED commands
-#if ENABLE_LED
-  else if (cmd == "LED_ON") {
-    ledState = true;
-    digitalWrite(LED_PIN, HIGH);
-  } else if (cmd == "LED_OFF") {
-    ledState = false;
-    digitalWrite(LED_PIN, LOW);
-  }
-#endif
-}
-
-// ============================================================================
-// SERVO MOVEMENT - Bjoern's smooth interpolation
-// ============================================================================
-
-void moveServos() {
-  for(auto& s: servoStates) {
-    if(s.current < s.goal) {
-      s.current += s.speed;
-    } else if(s.current > s.goal) {
-      s.current -= s.speed;
-    }
-
-    if(s.current < s.min) s.current = s.min;
-    if(s.current > s.max) s.current = s.max;
-
-    if(s.pin == SERVO_LEFT_PIN) {
-      servoLeft.write(s.current);
-    } else if(s.pin == SERVO_RIGHT_PIN) {
-      servoRight.write(s.current);
-    } else if(s.pin == SERVO_DOME_PIN) {
-      servoDome.write(s.current);
-    }
-  }
-}
-
-// ============================================================================
-// SETUP
-// ============================================================================
-
-void setup() {
-#if DEBUG_SERIAL
-  Serial.begin(SERIAL_BAUD);
-  Serial.println("\n==========================================");
-  Serial.println("BB-R2 WiFi Control - Bakken Museum Edition");
-  Serial.println("==========================================");
-  Serial.print("Droid: ");
-  Serial.println(WIFI_SSID);
-  Serial.print("Board: ");
-#ifdef BOARD_XIAO_ESP32C3
-  Serial.println("Xiao ESP32C3");
-#elif defined(BOARD_ESP32_DEVKIT)
-  Serial.println("ESP32 DevKit");
-#endif
-  Serial.println("------------------------------------------");
-#endif
-
-  // Initialize LED
-#if ENABLE_LED
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
-#endif
-
-  // Initialize servos
-  servoLeft.attach(SERVO_LEFT_PIN);
-  servoRight.attach(SERVO_RIGHT_PIN);
-  servoDome.attach(SERVO_DOME_PIN);
-  
-  servoLeft.write(SERVO_CENTER);
-  servoRight.write(SERVO_CENTER);
-  servoDome.write(SERVO_CENTER);
-  
-#if DEBUG_SERIAL
-  Serial.println("Servos initialized");
-  Serial.print("  Left:  GPIO "); Serial.println(SERVO_LEFT_PIN);
-  Serial.print("  Right: GPIO "); Serial.println(SERVO_RIGHT_PIN);
-  Serial.print("  Dome:  GPIO "); Serial.println(SERVO_DOME_PIN);
-#endif
-
-  // Initialize DFPlayer
-#if ENABLE_SOUND
-  dfpSerial.begin(9600, SERIAL_8N1, DFPLAYER_RX, DFPLAYER_TX);
-  delay(1000);
-  
-  if(!dfp.begin(dfpSerial)) {
-#if DEBUG_SERIAL
-    Serial.println("DFPlayer: Not found (continuing without sound)");
-#endif
-    soundEnabled = false;
-  } else {
-#if DEBUG_SERIAL
-    Serial.println("DFPlayer: Initialized");
-    Serial.print("  RX: GPIO "); Serial.println(DFPLAYER_RX);
-    Serial.print("  TX: GPIO "); Serial.println(DFPLAYER_TX);
-#endif
-    dfp.volume(20);
-    soundEnabled = true;
-  }
-#endif
-
-  // Set up WiFi Access Point
-#if DEBUG_SERIAL
-  Serial.println("------------------------------------------");
-  Serial.println("Starting WiFi Access Point...");
-#endif
-  
-  WiFi.softAP(WIFI_SSID, WIFI_PASS);
-  
-  IPAddress IP = WiFi.softAPIP();
-#if DEBUG_SERIAL
-  Serial.print("  SSID:     "); Serial.println(WIFI_SSID);
-  Serial.print("  Password: "); Serial.println(WIFI_PASS);
-  Serial.print("  IP:       "); Serial.println(IP);
-#endif
-
-  // Set up web server routes
-  server.on("/", handleRoot);
-  server.on("/cmd", handleCommand);
-  server.on("/battery", handleBattery);
-  server.on("/status", handleStatus);
-  
-  server.begin();
-  
-#if DEBUG_SERIAL
-  Serial.println("------------------------------------------");
-  Serial.println("Ready! Connect to WiFi and open browser.");
-  Serial.println("==========================================\n");
-#endif
-}
-
-// ============================================================================
-// MAIN LOOP
-// ============================================================================
-
-void loop() {
-  server.handleClient();
-  moveServos();
-  delay(10);
 }
